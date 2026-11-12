@@ -8,9 +8,14 @@ using System.Windows.Controls;
 
 namespace mine
 {
-    public readonly record struct PricePoint(DateTimeOffset Timestamp, double UtcTicks, decimal Price);
+    public readonly record struct PricePoint(DateTimeOffset Timestamp, double PlotTicks, double UtcTicks, decimal Price);
 
-    public enum SnapMode { None, Buy, Sell }
+    public enum SnapMode
+    {
+        None,
+        Buy,
+        Sell
+    }
 
     public partial class MainWindow : Window
     {
@@ -95,10 +100,11 @@ namespace mine
                 ReadOnlySpan<char> priceSpan = line.AsSpan(commaIdx + 1).Trim();
                 if (DateTimeOffset.TryParse(tsSpan, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTimeOffset dto) && decimal.TryParse(priceSpan, NumberStyles.Number, CultureInfo.InvariantCulture, out decimal price))
                 {
-                    list.Add(new PricePoint(dto, dto.UtcTicks, price));
+                    if (WeekdayTimeAxis.IsWeekend(dto)) continue;
+                    list.Add(new PricePoint(dto, WeekdayTimeAxis.ToPlotTicks(dto), dto.UtcTicks, price));
                 }
             }
-            list.Sort((a, b) => a.UtcTicks.CompareTo(b.UtcTicks));
+            list.Sort((a, b) => a.PlotTicks.CompareTo(b.PlotTicks));
             return list;
         }
     }

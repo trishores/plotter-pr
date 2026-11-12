@@ -28,9 +28,10 @@ namespace mine
         private const double LeftMargin = 16.0;
         private const double RightMargin = 85.0;
         private const double TopMargin = 16.0;
-        private const double BottomMargin = 45.0;
+        private const double BottomMargin = 58.0;
 
         private static readonly Brush BgBrush;
+        private static readonly Brush MarketBandBrush;
         private static readonly Pen GridPen;
         private static readonly Pen AxisPen;
         private static readonly Pen BuyPen;
@@ -41,13 +42,14 @@ namespace mine
         private static readonly Brush LabelBrush;
         private static readonly Brush TooltipBgBrush;
         private static readonly Pen TooltipBorderPen;
-        private static readonly Pen MarketGridPen;
         private static readonly Typeface UiTypeface = new Typeface(new FontFamily("Consolas"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
 
         static PriceChartControl()
         {
             BgBrush = new SolidColorBrush(Color.FromRgb(30, 30, 30));
             BgBrush.Freeze();
+            MarketBandBrush = new SolidColorBrush(Color.FromArgb(51, 255, 255, 255));
+            MarketBandBrush.Freeze();
             GridPen = new Pen(new SolidColorBrush(Color.FromRgb(45, 45, 48)), 1.0);
             GridPen.Freeze();
             AxisPen = new Pen(new SolidColorBrush(Color.FromRgb(80, 80, 85)), 1.0);
@@ -68,8 +70,6 @@ namespace mine
             TooltipBgBrush.Freeze();
             TooltipBorderPen = new Pen(new SolidColorBrush(Color.FromRgb(100, 100, 110)), 1.0);
             TooltipBorderPen.Freeze();
-            MarketGridPen = new Pen(new SolidColorBrush(Color.FromArgb(90, 65, 85, 110)), 1.0) { DashStyle = DashStyles.Dot };
-            MarketGridPen.Freeze();
         }
 
         public PriceChartControl()
@@ -113,8 +113,8 @@ namespace mine
             }
 
             _hasData = true;
-            double rawMinX = all.Min(p => p.UtcTicks);
-            double rawMaxX = all.Max(p => p.UtcTicks);
+            double rawMinX = all.Min(p => p.PlotTicks);
+            double rawMaxX = all.Max(p => p.PlotTicks);
             if (rawMaxX <= rawMinX)
             {
                 _dataMinX = rawMinX - TimeSpan.FromMinutes(5).Ticks;
@@ -161,50 +161,6 @@ namespace mine
             InvalidateVisual();
         }
 
-        private void ClampXBounds()
-        {
-            double maxRange = _dataMaxX - _dataMinX;
-            double curRange = _maxX - _minX;
-            if (curRange >= maxRange)
-            {
-                _minX = _dataMinX;
-                _maxX = _dataMaxX;
-                return;
-            }
-            if (_minX < _dataMinX)
-            {
-                _minX = _dataMinX;
-                _maxX = _minX + curRange;
-            }
-            if (_maxX > _dataMaxX)
-            {
-                _maxX = _dataMaxX;
-                _minX = _maxX - curRange;
-            }
-        }
-
-        private void ClampYBounds()
-        {
-            double maxRange = _dataMaxY - _dataMinY;
-            double curRange = _maxY - _minY;
-            if (curRange >= maxRange)
-            {
-                _minY = _dataMinY;
-                _maxY = _dataMaxY;
-                return;
-            }
-            if (_minY < _dataMinY)
-            {
-                _minY = _dataMinY;
-                _maxY = _minY + curRange;
-            }
-            if (_maxY > _dataMaxY)
-            {
-                _maxY = _dataMaxY;
-                _minY = _maxY - curRange;
-            }
-        }
-
         private void RecalculateAutoFitY()
         {
             if (!_hasData) return;
@@ -218,13 +174,13 @@ namespace mine
                 for (int i = 0; i < series.Count; i++)
                 {
                     var pt = series[i];
-                    if (pt.UtcTicks >= _minX && pt.UtcTicks <= _maxX)
+                    if (pt.PlotTicks >= _minX && pt.PlotTicks <= _maxX)
                     {
                         if (pt.Price < minP) minP = pt.Price;
                         if (pt.Price > maxP) maxP = pt.Price;
                         found = true;
                     }
-                    else if (i + 1 < series.Count && series[i].UtcTicks < _minX && series[i + 1].UtcTicks > _minX && (series[i + 1].UtcTicks - series[i].UtcTicks) <= MaxGapTicks)
+                    else if (i + 1 < series.Count && series[i].PlotTicks < _minX && series[i + 1].PlotTicks > _minX && (series[i + 1].UtcTicks - series[i].UtcTicks) <= MaxGapTicks)
                     {
                         if (pt.Price < minP) minP = pt.Price;
                         if (pt.Price > maxP) maxP = pt.Price;
@@ -411,51 +367,47 @@ namespace mine
             double rangeX = _maxX - _minX;
             if (rangeX > 0)
             {
-                long minClamp = Math.Clamp((long)_minX, DateTimeOffset.MinValue.UtcTicks, DateTimeOffset.MaxValue.UtcTicks);
-                long maxClamp = Math.Clamp((long)_maxX, DateTimeOffset.MinValue.UtcTicks, DateTimeOffset.MaxValue.UtcTicks);
+                DateTime startLocalDate = WeekdayTimeAxis.ToLocalDateTime(_minX).Date;
+                DateTime endLocalDate = WeekdayTimeAxis.ToLocalDateTime(_maxX).Date.AddDays(1);
 
-                DateTime startLocalDate = new DateTimeOffset(minClamp, TimeSpan.Zero).ToLocalTime().Date;
-                DateTime endLocalDate = new DateTimeOffset(maxClamp, TimeSpan.Zero).ToLocalTime().Date.AddDays(1);
+                double visibleWeekdays = rangeX / TimeSpan.FromDays(1).Ticks;
+                int dayStep = Math.Max(1, (int)Math.Ceiling(visibleWeekdays / Math.Max(2.0, plot.Width / 110.0)));
+                bool showMarketBands = visibleWeekdays <= Math.Max(20.0, plot.Width / 12.0);
 
-                double totalDays = (endLocalDate - startLocalDate).TotalDays;
-                int dayStep = Math.Max(1, (int)Math.Ceiling(totalDays / Math.Max(2.0, plot.Width / 110.0)));
-                bool showMarketLines = totalDays <= Math.Max(10.0, plot.Width / 25.0);
-
-                int dayIndex = 0;
-                for (DateTime day = startLocalDate; day <= endLocalDate; day = day.AddDays(1), dayIndex++)
+                int weekdayIndex = 0;
+                for (DateTime day = startLocalDate; day <= endLocalDate; day = day.AddDays(1))
                 {
-                    if (showMarketLines && day.DayOfWeek != DayOfWeek.Saturday && day.DayOfWeek != DayOfWeek.Sunday)
-                    {
-                        DateTime openLocal = DateTime.SpecifyKind(day.AddHours(8), DateTimeKind.Local);
-                        double openTicks = new DateTimeOffset(openLocal).UtcTicks;
-                        if (openTicks >= _minX && openTicks <= _maxX)
-                        {
-                            double openX = plot.Left + ((openTicks - _minX) / rangeX) * plot.Width;
-                            dc.DrawLine(MarketGridPen, new Point(openX, plot.Top), new Point(openX, plot.Bottom));
-                        }
+                    if (day.DayOfWeek == DayOfWeek.Saturday || day.DayOfWeek == DayOfWeek.Sunday) continue;
 
-                        DateTime closeLocal = DateTime.SpecifyKind(day.AddHours(16).AddMinutes(30), DateTimeKind.Local);
-                        double closeTicks = new DateTimeOffset(closeLocal).UtcTicks;
-                        if (closeTicks >= _minX && closeTicks <= _maxX)
+                    if (showMarketBands)
+                    {
+                        double openPlotTicks = WeekdayTimeAxis.ToPlotTicks(day.AddHours(8));
+                        double closePlotTicks = WeekdayTimeAxis.ToPlotTicks(day.AddHours(16).AddMinutes(30));
+                        double x1 = plot.Left + ((openPlotTicks - _minX) / rangeX) * plot.Width;
+                        double x2 = plot.Left + ((closePlotTicks - _minX) / rangeX) * plot.Width;
+                        double clampedX1 = Math.Clamp(x1, plot.Left, plot.Right);
+                        double clampedX2 = Math.Clamp(x2, plot.Left, plot.Right);
+                        if (clampedX2 > clampedX1)
                         {
-                            double closeX = plot.Left + ((closeTicks - _minX) / rangeX) * plot.Width;
-                            dc.DrawLine(MarketGridPen, new Point(closeX, plot.Top), new Point(closeX, plot.Bottom));
+                            dc.DrawRectangle(MarketBandBrush, null, new Rect(clampedX1, plot.Top, clampedX2 - clampedX1, plot.Height));
                         }
                     }
 
-                    if (dayIndex % dayStep == 0)
+                    if (weekdayIndex % dayStep == 0)
                     {
-                        DateTime middayLocal = DateTime.SpecifyKind(day.AddHours(12), DateTimeKind.Local);
-                        double middayTicks = new DateTimeOffset(middayLocal).UtcTicks;
-                        if (middayTicks >= _minX && middayTicks <= _maxX)
+                        DateTime middayLocal = day.AddHours(12);
+                        double middayPlotTicks = WeekdayTimeAxis.ToPlotTicks(middayLocal);
+                        if (middayPlotTicks >= _minX && middayPlotTicks <= _maxX)
                         {
-                            double x = plot.Left + ((middayTicks - _minX) / rangeX) * plot.Width;
+                            double x = plot.Left + ((middayPlotTicks - _minX) / rangeX) * plot.Width;
                             dc.DrawLine(GridPen, new Point(x, plot.Top), new Point(x, plot.Bottom));
-                            string label = $"{middayLocal:yyyy-MM-dd}\n12:00";
+                            string label = $"{middayLocal.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}\n12:00\n{middayLocal.ToString("ddd", CultureInfo.InvariantCulture)}";
                             var ft = new FormattedText(label, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, UiTypeface, 11, LabelBrush, dpi);
-                            dc.DrawText(ft, new Point(x - ft.Width / 2.0, plot.Bottom + 6));
+                            dc.DrawText(ft, new Point(x - ft.Width / 2.0, plot.Bottom + 5));
                         }
                     }
+
+                    weekdayIndex++;
                 }
             }
 
@@ -471,7 +423,7 @@ namespace mine
             {
                 for (int i = 0; i < series.Count; i++)
                 {
-                    double x = plot.Left + ((series[i].UtcTicks - _minX) / (_maxX - _minX)) * plot.Width;
+                    double x = plot.Left + ((series[i].PlotTicks - _minX) / (_maxX - _minX)) * plot.Width;
                     double y = plot.Bottom - (((double)series[i].Price - _minY) / (_maxY - _minY)) * plot.Height;
                     var pt = new Point(x, y);
                     if (i == 0 || (series[i].UtcTicks - series[i - 1].UtcTicks) > MaxGapTicks)
@@ -489,8 +441,8 @@ namespace mine
 
             for (int i = 0; i < series.Count; i++)
             {
-                if (series[i].UtcTicks < _minX || series[i].UtcTicks > _maxX) continue;
-                double x = plot.Left + ((series[i].UtcTicks - _minX) / (_maxX - _minX)) * plot.Width;
+                if (series[i].PlotTicks < _minX || series[i].PlotTicks > _maxX) continue;
+                double x = plot.Left + ((series[i].PlotTicks - _minX) / (_maxX - _minX)) * plot.Width;
                 double y = plot.Bottom - (((double)series[i].Price - _minY) / (_maxY - _minY)) * plot.Height;
                 dc.DrawEllipse(pointBrush, null, new Point(x, y), 3.0, 3.0);
             }
@@ -500,7 +452,7 @@ namespace mine
         {
             double ratioX = (hp.X - plot.Left) / plot.Width;
             double ratioY = (plot.Bottom - hp.Y) / plot.Height;
-            double targetTicks = _minX + ratioX * (_maxX - _minX);
+            double targetPlotTicks = _minX + ratioX * (_maxX - _minX);
             double cursorPrice = _minY + ratioY * (_maxY - _minY);
             double drawX = hp.X;
             double drawY = hp.Y;
@@ -512,11 +464,13 @@ namespace mine
                 _ => null
             };
 
-            if (snapSeries is { Count: > 0 } && FindNearestPoint(snapSeries, targetTicks) is PricePoint snappedPt)
+            DateTimeOffset? snappedTimestamp = null;
+            if (snapSeries is { Count: > 0 } && FindNearestPoint(snapSeries, targetPlotTicks) is PricePoint snappedPt)
             {
-                targetTicks = snappedPt.UtcTicks;
+                targetPlotTicks = snappedPt.PlotTicks;
                 cursorPrice = (double)snappedPt.Price;
-                drawX = plot.Left + ((targetTicks - _minX) / (_maxX - _minX)) * plot.Width;
+                snappedTimestamp = snappedPt.Timestamp;
+                drawX = plot.Left + ((targetPlotTicks - _minX) / (_maxX - _minX)) * plot.Width;
                 drawY = plot.Bottom - ((cursorPrice - _minY) / (_maxY - _minY)) * plot.Height;
             }
 
@@ -525,11 +479,20 @@ namespace mine
             dc.DrawLine(CrosshairPen, new Point(plot.Left, drawY), new Point(plot.Right, drawY));
             dc.Pop();
 
-            long cursorTicks = (long)targetTicks;
-            decimal? buyAtCursor = (_snapTo == SnapMode.Buy && snapSeries is { Count: > 0 } && FindNearestPoint(_buyPoints, targetTicks) is PricePoint bp) ? bp.Price : InterpolatePriceAt(_buyPoints, cursorTicks);
-            decimal? sellAtCursor = (_snapTo == SnapMode.Sell && snapSeries is { Count: > 0 } && FindNearestPoint(_sellPoints, targetTicks) is PricePoint sp) ? sp.Price : InterpolatePriceAt(_sellPoints, cursorTicks);
+            decimal? buyAtCursor = (_snapTo == SnapMode.Buy && snapSeries is { Count: > 0 } && FindNearestPoint(_buyPoints, targetPlotTicks) is PricePoint bp) ? bp.Price : InterpolatePriceAt(_buyPoints, targetPlotTicks);
+            decimal? sellAtCursor = (_snapTo == SnapMode.Sell && snapSeries is { Count: > 0 } && FindNearestPoint(_sellPoints, targetPlotTicks) is PricePoint sp) ? sp.Price : InterpolatePriceAt(_sellPoints, targetPlotTicks);
 
-            string timeStr = (cursorTicks >= DateTimeOffset.MinValue.UtcTicks && cursorTicks <= DateTimeOffset.MaxValue.UtcTicks) ? new DateTimeOffset(cursorTicks, TimeSpan.Zero).ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss zzz", CultureInfo.InvariantCulture) : "N/A";
+            string timeStr;
+            if (snappedTimestamp.HasValue)
+            {
+                timeStr = snappedTimestamp.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss ddd", CultureInfo.InvariantCulture);
+            }
+            else
+            {
+                DateTime cursorLocal = WeekdayTimeAxis.ToLocalDateTime(targetPlotTicks);
+                timeStr = cursorLocal.ToString("yyyy-MM-dd HH:mm:ss ddd", CultureInfo.InvariantCulture);
+            }
+
             string buyStr = buyAtCursor.HasValue ? buyAtCursor.Value.ToString("F3", CultureInfo.InvariantCulture) : "N/A";
             string sellStr = sellAtCursor.HasValue ? sellAtCursor.Value.ToString("F3", CultureInfo.InvariantCulture) : "N/A";
             string spreadStr = (buyAtCursor.HasValue && sellAtCursor.HasValue) ? (sellAtCursor.Value - buyAtCursor.Value).ToString("F3", CultureInfo.InvariantCulture) : "N/A";
@@ -550,42 +513,42 @@ namespace mine
             dc.DrawText(ft, new Point(boxX + 8, boxY + 6));
         }
 
-        private static PricePoint? FindNearestPoint(List<PricePoint> series, double targetTicks)
+        private static PricePoint? FindNearestPoint(List<PricePoint> series, double targetPlotTicks)
         {
             if (series.Count == 0) return null;
-            if (targetTicks <= series[0].UtcTicks) return series[0];
-            if (targetTicks >= series[^1].UtcTicks) return series[^1];
+            if (targetPlotTicks <= series[0].PlotTicks) return series[0];
+            if (targetPlotTicks >= series[^1].PlotTicks) return series[^1];
 
             int low = 0;
             int high = series.Count - 1;
             while (low <= high)
             {
                 int mid = low + ((high - low) / 2);
-                double midTicks = series[mid].UtcTicks;
-                if (Math.Abs(midTicks - targetTicks) < 1.0) return series[mid];
-                if (midTicks < targetTicks) low = mid + 1;
+                double midTicks = series[mid].PlotTicks;
+                if (Math.Abs(midTicks - targetPlotTicks) < 1.0) return series[mid];
+                if (midTicks < targetPlotTicks) low = mid + 1;
                 else high = mid - 1;
             }
 
             int idx1 = Math.Max(0, high);
             int idx2 = Math.Min(series.Count - 1, low);
-            return Math.Abs(series[idx1].UtcTicks - targetTicks) <= Math.Abs(series[idx2].UtcTicks - targetTicks) ? series[idx1] : series[idx2];
+            return Math.Abs(series[idx1].PlotTicks - targetPlotTicks) <= Math.Abs(series[idx2].PlotTicks - targetPlotTicks) ? series[idx1] : series[idx2];
         }
 
-        private static decimal? InterpolatePriceAt(List<PricePoint> series, double targetTicks)
+        private static decimal? InterpolatePriceAt(List<PricePoint> series, double targetPlotTicks)
         {
             if (series.Count == 0) return null;
-            if (targetTicks < series[0].UtcTicks || targetTicks > series[^1].UtcTicks) return null;
-            if (series.Count == 1) return Math.Abs(series[0].UtcTicks - targetTicks) < 1.0 ? series[0].Price : null;
+            if (targetPlotTicks < series[0].PlotTicks || targetPlotTicks > series[^1].PlotTicks) return null;
+            if (series.Count == 1) return Math.Abs(series[0].PlotTicks - targetPlotTicks) < 1.0 ? series[0].Price : null;
 
             int low = 0;
             int high = series.Count - 1;
             while (low <= high)
             {
                 int mid = low + ((high - low) / 2);
-                double midTicks = series[mid].UtcTicks;
-                if (Math.Abs(midTicks - targetTicks) < 1.0) return series[mid].Price;
-                if (midTicks < targetTicks) low = mid + 1;
+                double midTicks = series[mid].PlotTicks;
+                if (Math.Abs(midTicks - targetPlotTicks) < 1.0) return series[mid].Price;
+                if (midTicks < targetPlotTicks) low = mid + 1;
                 else high = mid - 1;
             }
 
@@ -593,12 +556,13 @@ namespace mine
             int idx2 = Math.Min(series.Count - 1, low);
             if (idx1 == idx2) return series[idx1].Price;
 
-            double t1 = series[idx1].UtcTicks;
-            double t2 = series[idx2].UtcTicks;
-            if ((t2 - t1) > MaxGapTicks) return null;
+            if ((series[idx2].UtcTicks - series[idx1].UtcTicks) > MaxGapTicks) return null;
+
+            double t1 = series[idx1].PlotTicks;
+            double t2 = series[idx2].PlotTicks;
             if (Math.Abs(t2 - t1) < 1.0) return series[idx1].Price;
 
-            double fraction = (targetTicks - t1) / (t2 - t1);
+            double fraction = (targetPlotTicks - t1) / (t2 - t1);
             double p1 = (double)series[idx1].Price;
             double p2 = (double)series[idx2].Price;
             return (decimal)(p1 + fraction * (p2 - p1));
