@@ -43,6 +43,7 @@ namespace mine
         private static readonly Brush TooltipBgBrush;
         private static readonly Pen TooltipBorderPen;
         private static readonly Pen MajorGridPen;
+        private bool _autoFollowLive = true;
         private static readonly Typeface UiTypeface = new Typeface(new FontFamily("Consolas"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
 
         static PriceChartControl()
@@ -100,6 +101,80 @@ namespace mine
                 _snapTo = value;
                 InvalidateVisual();
             }
+        }
+
+        public bool AutoFollowLive
+        {
+            get => _autoFollowLive;
+            set => _autoFollowLive = value;
+        }
+
+        public void AddLivePoint(PricePoint pt, bool isBuy)
+        {
+            List<PricePoint> target = isBuy ? _buyPoints : _sellPoints;
+            if (target.Count == 0 || pt.PlotTicks >= target[^1].PlotTicks)
+            {
+                target.Add(pt);
+            }
+            else
+            {
+                int idx = target.FindIndex(p => p.PlotTicks > pt.PlotTicks);
+                if (idx >= 0) target.Insert(idx, pt);
+                else target.Add(pt);
+            }
+
+            if (!_hasData)
+            {
+                _hasData = true;
+                double halfSpan = TimeSpan.FromMinutes(15).Ticks;
+                _dataMinX = pt.PlotTicks - halfSpan;
+                _dataMaxX = pt.PlotTicks + halfSpan;
+                _minX = _dataMinX;
+                _maxX = _dataMaxX;
+
+                double pVal = (double)pt.Price;
+                _dataMinY = pVal - 1.0;
+                _dataMaxY = pVal + 1.0;
+                _minY = _dataMinY;
+                _maxY = _dataMaxY;
+
+                if (_autoFitY) RecalculateAutoFitY();
+                InvalidateVisual();
+                return;
+            }
+
+            if (pt.PlotTicks < _dataMinX) _dataMinX = pt.PlotTicks;
+            if (pt.PlotTicks > _dataMaxX) _dataMaxX = pt.PlotTicks;
+            double priceD = (double)pt.Price;
+            if (priceD - 0.08 < _dataMinY) _dataMinY = priceD - 0.08;
+            if (priceD + 0.08 > _dataMaxY) _dataMaxY = priceD + 0.08;
+
+            if (_autoFollowLive)
+            {
+                double currentRangeX = _maxX - _minX;
+                double rightPad = currentRangeX * 0.05;
+                if (pt.PlotTicks > _maxX - rightPad || pt.PlotTicks < _minX)
+                {
+                    _maxX = pt.PlotTicks + rightPad;
+                    _minX = _maxX - currentRangeX;
+                }
+            }
+
+            if (_autoFitY)
+            {
+                RecalculateAutoFitY();
+            }
+            else if (_autoFollowLive)
+            {
+                double currentRangeY = _maxY - _minY;
+                if (priceD < _minY || priceD > _maxY)
+                {
+                    _minY = priceD - currentRangeY / 2.0;
+                    _maxY = priceD + currentRangeY / 2.0;
+                }
+            }
+
+            InvalidateVisual();
         }
 
         public void SetData(List<PricePoint>? buyPoints, List<PricePoint>? sellPoints)
