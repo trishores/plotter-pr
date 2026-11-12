@@ -1,4 +1,7 @@
-﻿using System.Globalization;
+﻿using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -7,6 +10,8 @@ namespace mine
 {
     public sealed class PriceChartControl : FrameworkElement
     {
+        private List<PricePoint> _rawBuyPoints = new();
+        private List<PricePoint> _rawSellPoints = new();
         private List<PricePoint> _buyPoints = new();
         private List<PricePoint> _sellPoints = new();
         private double _minX;
@@ -19,6 +24,8 @@ namespace mine
         private double _dataMaxY;
         private bool _hasData;
         private bool _autoFitY = true;
+        private bool _autoFollowLive = true;
+        private TimeAxisMode _axisMode = TimeAxisMode.Compact;
         private SnapMode _snapTo = SnapMode.None;
         private bool _isDragging;
         private Point _lastMouseDownPos;
@@ -32,8 +39,11 @@ namespace mine
 
         private static readonly Brush BgBrush;
         private static readonly Brush MarketBandBrush;
-        private static readonly Pen GridPen;
-        private static readonly Pen AxisPen;
+        private static readonly Pen HorizontalWholePoundGridPen;
+        private static readonly Pen Horizontal25PenceGridPen;
+        private static readonly Pen VerticalMiddayGridPen;
+        private static readonly Pen XAxisBorderPen;
+        private static readonly Pen YAxisBorderPen;
         private static readonly Pen BuyPen;
         private static readonly Pen SellPen;
         private static readonly Brush BuyBrush;
@@ -42,22 +52,24 @@ namespace mine
         private static readonly Brush LabelBrush;
         private static readonly Brush TooltipBgBrush;
         private static readonly Pen TooltipBorderPen;
-        private static readonly Pen MajorGridPen;
-        private bool _autoFollowLive = true;
-        private static readonly Typeface UiTypeface = new(new FontFamily("Consolas"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+        private static readonly Typeface UiTypeface = new Typeface(new FontFamily("Consolas"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
 
         static PriceChartControl()
         {
             BgBrush = new SolidColorBrush(Color.FromRgb(30, 30, 30));
             BgBrush.Freeze();
-            MarketBandBrush = new SolidColorBrush(Color.FromArgb(30, 100, 100, 255));
+            MarketBandBrush = new SolidColorBrush(Color.FromArgb(30, 120, 120, 180));
             MarketBandBrush.Freeze();
-            GridPen = new Pen(new SolidColorBrush(Color.FromRgb(100, 100, 100)), 1.0);
-            GridPen.Freeze();
-            MajorGridPen = new Pen(new SolidColorBrush(Color.FromRgb(255, 255, 255)), 2.0);
-            MajorGridPen.Freeze();
-            AxisPen = new Pen(new SolidColorBrush(Color.FromRgb(80, 80, 85)), 1.0);
-            AxisPen.Freeze();
+            HorizontalWholePoundGridPen = new Pen(new SolidColorBrush(Colors.White), 2.2);
+            HorizontalWholePoundGridPen.Freeze();
+            Horizontal25PenceGridPen = new Pen(new SolidColorBrush(Color.FromRgb(55, 55, 60)), 1.0);
+            Horizontal25PenceGridPen.Freeze();
+            VerticalMiddayGridPen = new Pen(new SolidColorBrush(Color.FromRgb(100, 100, 110)), 2.0);
+            VerticalMiddayGridPen.Freeze();
+            XAxisBorderPen = new Pen(new SolidColorBrush(Color.FromRgb(80, 80, 85)), 1.0);
+            XAxisBorderPen.Freeze();
+            YAxisBorderPen = new Pen(new SolidColorBrush(Color.FromRgb(80, 80, 85)), 1.0);
+            YAxisBorderPen.Freeze();
             BuyBrush = new SolidColorBrush(Color.FromRgb(0, 230, 118));
             BuyBrush.Freeze();
             SellBrush = new SolidColorBrush(Color.FromRgb(255, 82, 82));
@@ -93,6 +105,23 @@ namespace mine
             }
         }
 
+        public bool AutoFollowLive
+        {
+            get => _autoFollowLive;
+            set => _autoFollowLive = value;
+        }
+
+        public TimeAxisMode AxisMode
+        {
+            get => _axisMode;
+            set
+            {
+                if (_axisMode == value) return;
+                _axisMode = value;
+                RebuildActiveSeriesAndBounds(resetView: true);
+            }
+        }
+
         public SnapMode SnapTo
         {
             get => _snapTo;
@@ -103,84 +132,30 @@ namespace mine
             }
         }
 
-        public bool AutoFollowLive
-        {
-            get => _autoFollowLive;
-            set => _autoFollowLive = value;
-        }
-
-        public void AddLivePoint(PricePoint pt, bool isBuy)
-        {
-            List<PricePoint> target = isBuy ? _buyPoints : _sellPoints;
-            if (target.Count == 0 || pt.PlotTicks >= target[^1].PlotTicks)
-            {
-                target.Add(pt);
-            }
-            else
-            {
-                int idx = target.FindIndex(p => p.PlotTicks > pt.PlotTicks);
-                if (idx >= 0) target.Insert(idx, pt);
-                else target.Add(pt);
-            }
-
-            if (!_hasData)
-            {
-                _hasData = true;
-                double halfSpan = TimeSpan.FromMinutes(15).Ticks;
-                _dataMinX = pt.PlotTicks - halfSpan;
-                _dataMaxX = pt.PlotTicks + halfSpan;
-                _minX = _dataMinX;
-                _maxX = _dataMaxX;
-
-                double pVal = (double)pt.Price;
-                _dataMinY = pVal - 1.0;
-                _dataMaxY = pVal + 1.0;
-                _minY = _dataMinY;
-                _maxY = _dataMaxY;
-
-                if (_autoFitY) RecalculateAutoFitY();
-                InvalidateVisual();
-                return;
-            }
-
-            if (pt.PlotTicks < _dataMinX) _dataMinX = pt.PlotTicks;
-            if (pt.PlotTicks > _dataMaxX) _dataMaxX = pt.PlotTicks;
-            double priceD = (double)pt.Price;
-            if (priceD - 0.08 < _dataMinY) _dataMinY = priceD - 0.08;
-            if (priceD + 0.08 > _dataMaxY) _dataMaxY = priceD + 0.08;
-
-            if (_autoFollowLive)
-            {
-                double currentRangeX = _maxX - _minX;
-                double rightPad = currentRangeX * 0.05;
-                if (pt.PlotTicks > _maxX - rightPad || pt.PlotTicks < _minX)
-                {
-                    _maxX = pt.PlotTicks + rightPad;
-                    _minX = _maxX - currentRangeX;
-                }
-            }
-
-            if (_autoFitY)
-            {
-                RecalculateAutoFitY();
-            }
-            else if (_autoFollowLive)
-            {
-                double currentRangeY = _maxY - _minY;
-                if (priceD < _minY || priceD > _maxY)
-                {
-                    _minY = priceD - currentRangeY / 2.0;
-                    _maxY = priceD + currentRangeY / 2.0;
-                }
-            }
-
-            InvalidateVisual();
-        }
-
         public void SetData(List<PricePoint>? buyPoints, List<PricePoint>? sellPoints)
         {
-            if (buyPoints != null) _buyPoints = buyPoints;
-            if (sellPoints != null) _sellPoints = sellPoints;
+            if (buyPoints != null) _rawBuyPoints = buyPoints;
+            if (sellPoints != null) _rawSellPoints = sellPoints;
+            RebuildActiveSeriesAndBounds(resetView: true);
+        }
+
+        private List<PricePoint> ProjectSeries(List<PricePoint> rawSeries)
+        {
+            var result = new List<PricePoint>(rawSeries.Count);
+            for (int i = 0; i < rawSeries.Count; i++)
+            {
+                PricePoint pt = rawSeries[i];
+                if (_axisMode == TimeAxisMode.Compact && !WeekdayTimeAxis.IsMarketOpen(pt.Timestamp)) continue;
+                result.Add(new PricePoint(pt.Timestamp, WeekdayTimeAxis.ToPlotTicks(pt.Timestamp, _axisMode), pt.UtcTicks, pt.Price));
+            }
+            result.Sort((a, b) => a.PlotTicks.CompareTo(b.PlotTicks));
+            return result;
+        }
+
+        private void RebuildActiveSeriesAndBounds(bool resetView)
+        {
+            _buyPoints = ProjectSeries(_rawBuyPoints);
+            _sellPoints = ProjectSeries(_rawSellPoints);
 
             var all = _buyPoints.Concat(_sellPoints).ToList();
             if (all.Count == 0)
@@ -219,7 +194,101 @@ namespace mine
                 _dataMaxY = rawMaxY + padY;
             }
 
-            ResetView();
+            if (resetView)
+            {
+                ResetView();
+            }
+            else
+            {
+                if (_autoFitY) RecalculateAutoFitY();
+                InvalidateVisual();
+            }
+        }
+
+        public void AddLivePoint(PricePoint pt, bool isBuy)
+        {
+            List<PricePoint> rawTarget = isBuy ? _rawBuyPoints : _rawSellPoints;
+            if (rawTarget.Count == 0 || pt.UtcTicks >= rawTarget[^1].UtcTicks)
+            {
+                rawTarget.Add(pt);
+            }
+            else
+            {
+                int idx = rawTarget.FindIndex(p => p.UtcTicks > pt.UtcTicks);
+                if (idx >= 0) rawTarget.Insert(idx, pt);
+                else rawTarget.Add(pt);
+            }
+
+            if (_axisMode == TimeAxisMode.Compact && !WeekdayTimeAxis.IsMarketOpen(pt.Timestamp))
+            {
+                return;
+            }
+
+            var projectedPt = new PricePoint(pt.Timestamp, WeekdayTimeAxis.ToPlotTicks(pt.Timestamp, _axisMode), pt.UtcTicks, pt.Price);
+            List<PricePoint> activeTarget = isBuy ? _buyPoints : _sellPoints;
+            if (activeTarget.Count == 0 || projectedPt.PlotTicks >= activeTarget[^1].PlotTicks)
+            {
+                activeTarget.Add(projectedPt);
+            }
+            else
+            {
+                int idx = activeTarget.FindIndex(p => p.PlotTicks > projectedPt.PlotTicks);
+                if (idx >= 0) activeTarget.Insert(idx, projectedPt);
+                else activeTarget.Add(projectedPt);
+            }
+
+            if (!_hasData)
+            {
+                _hasData = true;
+                double halfSpan = TimeSpan.FromMinutes(15).Ticks;
+                _dataMinX = projectedPt.PlotTicks - halfSpan;
+                _dataMaxX = projectedPt.PlotTicks + halfSpan;
+                _minX = _dataMinX;
+                _maxX = _dataMaxX;
+
+                double pVal = (double)projectedPt.Price;
+                _dataMinY = pVal - 1.0;
+                _dataMaxY = pVal + 1.0;
+                _minY = _dataMinY;
+                _maxY = _dataMaxY;
+
+                if (_autoFitY) RecalculateAutoFitY();
+                InvalidateVisual();
+                return;
+            }
+
+            if (projectedPt.PlotTicks < _dataMinX) _dataMinX = projectedPt.PlotTicks;
+            if (projectedPt.PlotTicks > _dataMaxX) _dataMaxX = projectedPt.PlotTicks;
+            double priceD = (double)projectedPt.Price;
+            if (priceD - 0.08 < _dataMinY) _dataMinY = priceD - 0.08;
+            if (priceD + 0.08 > _dataMaxY) _dataMaxY = priceD + 0.08;
+
+            if (_autoFollowLive)
+            {
+                double currentRangeX = _maxX - _minX;
+                double rightPad = currentRangeX * 0.05;
+                if (projectedPt.PlotTicks > _maxX - rightPad || projectedPt.PlotTicks < _minX)
+                {
+                    _maxX = projectedPt.PlotTicks + rightPad;
+                    _minX = _maxX - currentRangeX;
+                }
+            }
+
+            if (_autoFitY)
+            {
+                RecalculateAutoFitY();
+            }
+            else if (_autoFollowLive)
+            {
+                double currentRangeY = _maxY - _minY;
+                if (priceD < _minY || priceD > _maxY)
+                {
+                    _minY = priceD - currentRangeY / 2.0;
+                    _maxY = priceD + currentRangeY / 2.0;
+                }
+            }
+
+            InvalidateVisual();
         }
 
         public void ResetView()
@@ -402,7 +471,10 @@ namespace mine
 
             if (!_hasData)
             {
-                var emptyText = new FormattedText("Drag and drop buy_price_log.csv and/or sell_price_log.csv onto this area", CultureInfo.InvariantCulture, FlowDirection.LeftToRight, UiTypeface, 14, LabelBrush, dpi);
+                string msg = (_rawBuyPoints.Count > 0 || _rawSellPoints.Count > 0) && _axisMode == TimeAxisMode.Compact
+                    ? "No points within weekday market hours (08:00-16:30). Switch View to 'Expanded' to view out-of-hours/weekend data."
+                    : "Drag and drop buy_price_log.csv and/or sell_price_log.csv onto this area";
+                var emptyText = new FormattedText(msg, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, UiTypeface, 14, LabelBrush, dpi);
                 dc.DrawText(emptyText, new Point(plot.Left + (plot.Width - emptyText.Width) / 2.0, plot.Top + (plot.Height - emptyText.Height) / 2.0));
                 return;
             }
@@ -439,7 +511,7 @@ namespace mine
                     double ratio = (val - _minY) / rangeY;
                     double y = plot.Bottom - ratio * plot.Height;
                     bool isWholePound = Math.Abs(val - Math.Round(val)) < 1e-6;
-                    dc.DrawLine(isWholePound ? MajorGridPen : GridPen, new Point(plot.Left, y), new Point(plot.Right, y));
+                    dc.DrawLine(isWholePound ? HorizontalWholePoundGridPen : Horizontal25PenceGridPen, new Point(plot.Left, y), new Point(plot.Right, y));
                     string priceLabel = isWholePound ? $"£{val.ToString("F0", CultureInfo.InvariantCulture)}" : $"£{val.ToString("F2", CultureInfo.InvariantCulture)}";
                     var ft = new FormattedText(priceLabel, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, UiTypeface, 11, LabelBrush, dpi);
                     dc.DrawText(ft, new Point(plot.Right + 6, y - ft.Height / 2.0));
@@ -449,22 +521,23 @@ namespace mine
             double rangeX = _maxX - _minX;
             if (rangeX > 0)
             {
-                DateTime startLocalDate = WeekdayTimeAxis.ToLocalDateTime(_minX).Date;
-                DateTime endLocalDate = WeekdayTimeAxis.ToLocalDateTime(_maxX).Date.AddDays(1);
+                DateTime startLocalDate = WeekdayTimeAxis.ToLocalDateTime(_minX, _axisMode).Date.AddDays(-1);
+                DateTime endLocalDate = WeekdayTimeAxis.ToLocalDateTime(_maxX, _axisMode).Date.AddDays(1);
 
-                double visibleWeekdays = rangeX / TimeSpan.FromDays(1).Ticks;
-                int dayStep = Math.Max(1, (int)Math.Ceiling(visibleWeekdays / Math.Max(2.0, plot.Width / 110.0)));
-                bool showMarketBands = visibleWeekdays <= Math.Max(20.0, plot.Width / 12.0);
+                double visibleDays = rangeX / WeekdayTimeAxis.GetPlotDayTicks(_axisMode);
+                int dayStep = Math.Max(1, (int)Math.Ceiling(visibleDays / Math.Max(2.0, plot.Width / 110.0)));
+                bool showMarketBands = visibleDays <= Math.Max(20.0, plot.Width / 12.0);
 
-                int weekdayIndex = 0;
+                int dayIndex = 0;
                 for (DateTime day = startLocalDate; day <= endLocalDate; day = day.AddDays(1))
                 {
-                    if (day.DayOfWeek == DayOfWeek.Saturday || day.DayOfWeek == DayOfWeek.Sunday) continue;
+                    bool isWeekend = day.DayOfWeek == DayOfWeek.Saturday || day.DayOfWeek == DayOfWeek.Sunday;
+                    if (_axisMode == TimeAxisMode.Compact && isWeekend) continue;
 
-                    if (showMarketBands)
+                    if (showMarketBands && !isWeekend)
                     {
-                        double openPlotTicks = WeekdayTimeAxis.ToPlotTicks(day.AddHours(8));
-                        double closePlotTicks = WeekdayTimeAxis.ToPlotTicks(day.AddHours(16).AddMinutes(30));
+                        double openPlotTicks = WeekdayTimeAxis.ToPlotTicks(day.AddHours(8), _axisMode);
+                        double closePlotTicks = WeekdayTimeAxis.ToPlotTicks(day.AddHours(16).AddMinutes(30), _axisMode);
                         double x1 = plot.Left + ((openPlotTicks - _minX) / rangeX) * plot.Width;
                         double x2 = plot.Left + ((closePlotTicks - _minX) / rangeX) * plot.Width;
                         double clampedX1 = Math.Clamp(x1, plot.Left, plot.Right);
@@ -475,25 +548,28 @@ namespace mine
                         }
                     }
 
-                    if (weekdayIndex % dayStep == 0)
+                    if (dayIndex % dayStep == 0)
                     {
                         DateTime middayLocal = day.AddHours(12);
-                        double middayPlotTicks = WeekdayTimeAxis.ToPlotTicks(middayLocal);
+                        double middayPlotTicks = WeekdayTimeAxis.ToPlotTicks(middayLocal, _axisMode);
                         if (middayPlotTicks >= _minX && middayPlotTicks <= _maxX)
                         {
                             double x = plot.Left + ((middayPlotTicks - _minX) / rangeX) * plot.Width;
-                            dc.DrawLine(GridPen, new Point(x, plot.Top), new Point(x, plot.Bottom));
+                            dc.DrawLine(VerticalMiddayGridPen, new Point(x, plot.Top), new Point(x, plot.Bottom));
                             string label = $"{middayLocal.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}\n12:00\n{middayLocal.ToString("ddd", CultureInfo.InvariantCulture)}";
                             var ft = new FormattedText(label, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, UiTypeface, 11, LabelBrush, dpi) { TextAlignment = TextAlignment.Center };
                             dc.DrawText(ft, new Point(x, plot.Bottom + 5));
                         }
                     }
 
-                    weekdayIndex++;
+                    dayIndex++;
                 }
             }
 
-            dc.DrawRectangle(null, AxisPen, plot);
+            dc.DrawLine(XAxisBorderPen, new Point(plot.Left, plot.Top), new Point(plot.Right, plot.Top));
+            dc.DrawLine(XAxisBorderPen, new Point(plot.Left, plot.Bottom), new Point(plot.Right, plot.Bottom));
+            dc.DrawLine(YAxisBorderPen, new Point(plot.Left, plot.Top), new Point(plot.Left, plot.Bottom));
+            dc.DrawLine(YAxisBorderPen, new Point(plot.Right, plot.Top), new Point(plot.Right, plot.Bottom));
         }
 
         private void DrawSeries(DrawingContext dc, Rect plot, List<PricePoint> series, Pen linePen, Brush pointBrush)
@@ -571,7 +647,7 @@ namespace mine
             }
             else
             {
-                DateTime cursorLocal = WeekdayTimeAxis.ToLocalDateTime(targetPlotTicks);
+                DateTime cursorLocal = WeekdayTimeAxis.ToLocalDateTime(targetPlotTicks, _axisMode);
                 timeStr = cursorLocal.ToString("yyyy-MM-dd HH:mm:ss ddd", CultureInfo.InvariantCulture);
             }
 

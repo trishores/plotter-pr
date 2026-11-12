@@ -10,6 +10,11 @@
                 <Button x:Name="BtnResetView" Content="Reset View" Click="BtnResetView_Click" Margin="10,8" Padding="12,5" Background="#0E639C" Foreground="White" BorderThickness="0"/>
                 <CheckBox x:Name="ChkAutoFitY" Content="Auto-Fit Y to Visible X" IsChecked="True" Checked="ChkAutoFitY_Changed" Unchecked="ChkAutoFitY_Changed" VerticalAlignment="Center" Margin="12,0" Foreground="#CCCCCC"/>
                 <CheckBox x:Name="ChkAutoFollowLive" Content="Streaming" IsChecked="True" Checked="ChkAutoFollowLive_Changed" Unchecked="ChkAutoFollowLive_Changed" VerticalAlignment="Center" Margin="12,0" Foreground="#CCCCCC"/>
+                <TextBlock Text="View:" Foreground="#CCCCCC" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                <ComboBox x:Name="CmbAxisMode" SelectedIndex="0" SelectionChanged="CmbAxisMode_SelectionChanged" VerticalAlignment="Center" Width="90">
+                    <ComboBoxItem Content="Compact"/>
+                    <ComboBoxItem Content="Expanded"/>
+                </ComboBox>
                 <TextBlock Text="Snap Cursor To:" Foreground="#CCCCCC" VerticalAlignment="Center" Margin="12,0,6,0"/>
                 <ComboBox x:Name="CmbSnapTo" SelectedIndex="0" SelectionChanged="CmbSnapTo_SelectionChanged" VerticalAlignment="Center" Width="65">
                     <ComboBoxItem Content="None"/>

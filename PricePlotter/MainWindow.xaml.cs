@@ -108,10 +108,10 @@ namespace mine
 
                 Dispatcher.BeginInvoke(() =>
                 {
-                    if (isNewPrice && parsedDto.HasValue && !WeekdayTimeAxis.IsWeekend(parsedDto.Value))
+                    if (isNewPrice && parsedDto.HasValue)
                     {
                         bool isBuy = transactionType.Equals("Buy", StringComparison.OrdinalIgnoreCase);
-                        var pt = new PricePoint(parsedDto.Value, WeekdayTimeAxis.ToPlotTicks(parsedDto.Value), parsedDto.Value.UtcTicks, lastPrice);
+                        var pt = new PricePoint(parsedDto.Value, WeekdayTimeAxis.ToPlotTicks(parsedDto.Value, Chart.AxisMode), parsedDto.Value.UtcTicks, lastPrice);
                         Chart.AddLivePoint(pt, isBuy);
                     }
                     _statusWindow?.UpdatePacketData(automationStatus, statusMessage, errorMessage, isNewPrice ? transactionType : null, isNewPrice ? lastPrice : null, parsedDto);
@@ -138,18 +138,24 @@ namespace mine
 
         private void ChkAutoFitY_Changed(object sender, RoutedEventArgs e)
         {
-            Chart?.AutoFitY = ChkAutoFitY.IsChecked == true;
+            if (Chart != null) Chart.AutoFitY = ChkAutoFitY.IsChecked == true;
         }
 
         private void ChkAutoFollowLive_Changed(object sender, RoutedEventArgs e)
         {
             bool follow = ChkAutoFollowLive.IsChecked == true;
-            Chart?.AutoFollowLive = follow;
+            if (Chart != null) Chart.AutoFollowLive = follow;
             if (_statusWindow != null)
             {
                 if (follow) _statusWindow.Show();
                 else _statusWindow.Hide();
             }
+        }
+
+        private void CmbAxisMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (Chart == null) return;
+            Chart.AxisMode = CmbAxisMode.SelectedIndex == 1 ? TimeAxisMode.Expanded : TimeAxisMode.Compact;
         }
 
         private void CmbSnapTo_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -189,11 +195,11 @@ namespace mine
                 string fileName = Path.GetFileName(filePath);
                 if (string.Equals(fileName, "buy_price_log.csv", StringComparison.OrdinalIgnoreCase))
                 {
-                    buyPoints = ParseLogFile(filePath);
+                    buyPoints = ParseLogFile(filePath, Chart.AxisMode);
                 }
                 else if (string.Equals(fileName, "sell_price_log.csv", StringComparison.OrdinalIgnoreCase))
                 {
-                    sellPoints = ParseLogFile(filePath);
+                    sellPoints = ParseLogFile(filePath, Chart.AxisMode);
                 }
             }
 
@@ -203,7 +209,7 @@ namespace mine
             }
         }
 
-        private static List<PricePoint> ParseLogFile(string path)
+        private static List<PricePoint> ParseLogFile(string path, TimeAxisMode mode)
         {
             var list = new List<PricePoint>();
             using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
@@ -218,11 +224,10 @@ namespace mine
                 ReadOnlySpan<char> priceSpan = line.AsSpan(commaIdx + 1).Trim();
                 if (DateTimeOffset.TryParse(tsSpan, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTimeOffset dto) && decimal.TryParse(priceSpan, NumberStyles.Number, CultureInfo.InvariantCulture, out decimal price))
                 {
-                    if (WeekdayTimeAxis.IsWeekend(dto)) continue;
-                    list.Add(new PricePoint(dto, WeekdayTimeAxis.ToPlotTicks(dto), dto.UtcTicks, price));
+                    list.Add(new PricePoint(dto, WeekdayTimeAxis.ToPlotTicks(dto, mode), dto.UtcTicks, price));
                 }
             }
-            list.Sort((a, b) => a.PlotTicks.CompareTo(b.PlotTicks));
+            list.Sort((a, b) => a.UtcTicks.CompareTo(b.UtcTicks));
             return list;
         }
     }
