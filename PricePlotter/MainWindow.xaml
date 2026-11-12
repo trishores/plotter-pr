@@ -1,0 +1,26 @@
+﻿<Window x:Class="mine.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:mine" Title="Buy / Sell Price Log Viewer" Width="1200" Height="750" Background="#1E1E1E">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Background="#252526" Margin="0">
+            <Button x:Name="BtnResetView" Content="Reset View" Click="BtnResetView_Click" Margin="10,8" Padding="12,5" Background="#0E639C" Foreground="White" BorderThickness="0"/>
+            <CheckBox x:Name="ChkAutoFitY" Content="Auto-Fit Y to Visible X" IsChecked="True" Checked="ChkAutoFitY_Changed" Unchecked="ChkAutoFitY_Changed" VerticalAlignment="Center" Margin="12,0" Foreground="#CCCCCC"/>
+            <TextBlock Text="Snap To:" Foreground="#CCCCCC" VerticalAlignment="Center" Margin="12,0,6,0"/>
+            <ComboBox x:Name="CmbSnapTo" SelectedIndex="0" SelectionChanged="CmbSnapTo_SelectionChanged" VerticalAlignment="Center" Width="85">
+                <ComboBoxItem Content="None"/>
+                <ComboBoxItem Content="Buy"/>
+                <ComboBoxItem Content="Sell"/>
+            </ComboBox>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="20,0">
+                <Rectangle Width="14" Height="3" Fill="#00E676" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                <TextBlock Text="Buy (buy_price_log.csv)" Foreground="#00E676" VerticalAlignment="Center" Margin="0,0,18,0"/>
+                <Rectangle Width="14" Height="3" Fill="#FF5252" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                <TextBlock Text="Sell (sell_price_log.csv)" Foreground="#FF5252" VerticalAlignment="Center" Margin="0,0,24,0"/>
+                <TextBlock Text="Controls: Drag &amp; Drop CSVs | Left-Drag = Pan | Ctrl+Wheel = X Zoom | Shift+Wheel = Y Zoom" Foreground="#888888" VerticalAlignment="Center"/>
+            </StackPanel>
+        </StackPanel>
+        <local:PriceChartControl x:Name="Chart" Grid.Row="1" AllowDrop="True" DragOver="Chart_DragOver" Drop="Chart_Drop"/>
+    </Grid>
+</Window>
