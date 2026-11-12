@@ -16,7 +16,7 @@
                     <ComboBoxItem Content="Expanded"/>
                 </ComboBox>
                 <TextBlock Text="Snap Cursor To:" Foreground="#CCCCCC" VerticalAlignment="Center" Margin="12,0,6,0"/>
-                <ComboBox x:Name="CmbSnapTo" SelectedIndex="0" SelectionChanged="CmbSnapTo_SelectionChanged" VerticalAlignment="Center" Width="65">
+                <ComboBox x:Name="CmbSnapTo" SelectedIndex="1" SelectionChanged="CmbSnapTo_SelectionChanged" VerticalAlignment="Center" Width="65">
                     <ComboBoxItem Content="None"/>
                     <ComboBoxItem Content="Buy"/>
                     <ComboBoxItem Content="Sell"/>
