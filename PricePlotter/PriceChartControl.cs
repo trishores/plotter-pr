@@ -42,16 +42,19 @@ namespace mine
         private static readonly Brush LabelBrush;
         private static readonly Brush TooltipBgBrush;
         private static readonly Pen TooltipBorderPen;
+        private static readonly Pen MajorGridPen;
         private static readonly Typeface UiTypeface = new Typeface(new FontFamily("Consolas"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
 
         static PriceChartControl()
         {
             BgBrush = new SolidColorBrush(Color.FromRgb(30, 30, 30));
             BgBrush.Freeze();
-            MarketBandBrush = new SolidColorBrush(Color.FromArgb(51, 255, 255, 255));
+            MarketBandBrush = new SolidColorBrush(Color.FromArgb(95, 255, 255, 255));
             MarketBandBrush.Freeze();
-            GridPen = new Pen(new SolidColorBrush(Color.FromRgb(45, 45, 48)), 1.0);
+            GridPen = new Pen(new SolidColorBrush(Color.FromRgb(55, 55, 60)), 1.0);
             GridPen.Freeze();
+            MajorGridPen = new Pen(new SolidColorBrush(Color.FromRgb(95, 95, 105)), 2.2);
+            MajorGridPen.Freeze();
             AxisPen = new Pen(new SolidColorBrush(Color.FromRgb(80, 80, 85)), 1.0);
             AxisPen.Freeze();
             BuyBrush = new SolidColorBrush(Color.FromRgb(0, 230, 118));
@@ -347,19 +350,23 @@ namespace mine
             double rangeY = _maxY - _minY;
             if (rangeY > 0)
             {
-                double yStep = 1.0;
-                while (rangeY / yStep > Math.Max(4.0, plot.Height / 22.0))
+                double yStep = 0.25;
+                while (rangeY / yStep > Math.Max(4.0, plot.Height / 18.0))
                 {
                     yStep *= 2.0;
                 }
 
-                double firstY = Math.Ceiling(_minY / yStep) * yStep;
-                for (double val = firstY; val <= _maxY; val += yStep)
+                long firstIndex = (long)Math.Ceiling(_minY / yStep - 1e-9);
+                long lastIndex = (long)Math.Floor(_maxY / yStep + 1e-9);
+                for (long idx = firstIndex; idx <= lastIndex; idx++)
                 {
+                    double val = idx * yStep;
                     double ratio = (val - _minY) / rangeY;
                     double y = plot.Bottom - ratio * plot.Height;
-                    dc.DrawLine(GridPen, new Point(plot.Left, y), new Point(plot.Right, y));
-                    var ft = new FormattedText($"£{val.ToString("F0", CultureInfo.InvariantCulture)}", CultureInfo.InvariantCulture, FlowDirection.LeftToRight, UiTypeface, 11, LabelBrush, dpi);
+                    bool isWholePound = Math.Abs(val - Math.Round(val)) < 1e-6;
+                    dc.DrawLine(isWholePound ? MajorGridPen : GridPen, new Point(plot.Left, y), new Point(plot.Right, y));
+                    string priceLabel = isWholePound ? $"£{val.ToString("F0", CultureInfo.InvariantCulture)}" : $"£{val.ToString("F2", CultureInfo.InvariantCulture)}";
+                    var ft = new FormattedText(priceLabel, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, UiTypeface, 11, LabelBrush, dpi);
                     dc.DrawText(ft, new Point(plot.Right + 6, y - ft.Height / 2.0));
                 }
             }
@@ -402,8 +409,8 @@ namespace mine
                             double x = plot.Left + ((middayPlotTicks - _minX) / rangeX) * plot.Width;
                             dc.DrawLine(GridPen, new Point(x, plot.Top), new Point(x, plot.Bottom));
                             string label = $"{middayLocal.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}\n12:00\n{middayLocal.ToString("ddd", CultureInfo.InvariantCulture)}";
-                            var ft = new FormattedText(label, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, UiTypeface, 11, LabelBrush, dpi);
-                            dc.DrawText(ft, new Point(x - ft.Width / 2.0, plot.Bottom + 5));
+                            var ft = new FormattedText(label, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, UiTypeface, 11, LabelBrush, dpi) { TextAlignment = TextAlignment.Center };
+                            dc.DrawText(ft, new Point(x, plot.Bottom + 5));
                         }
                     }
 

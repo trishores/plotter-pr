@@ -9,4 +9,11 @@
 	<RootNamespace>mine</RootNamespace>
   </PropertyGroup>
 
+	<PropertyGroup>
+		<KestrelSourcePath Condition="'$(KestrelSourcePath)' == ''">D:\FiveFifty\kestrelserver-pr\Kestrel.Client\KestrelClient.cs</KestrelSourcePath>
+	</PropertyGroup>
+	<Target Name="SyncKestrelClient" BeforeTargets="BeforeCompile" Condition="'$(COMPUTERNAME)' == 'DESKTOP-9NGC6K6'">
+		<Copy SourceFiles="$(KestrelSourcePath)" DestinationFiles="$(MSBuildProjectDirectory)\KestrelClient.cs" SkipUnchangedFiles="true" />
+	</Target>
+
 </Project>
