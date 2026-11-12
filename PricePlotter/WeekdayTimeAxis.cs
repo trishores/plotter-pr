@@ -2,7 +2,7 @@
 {
     internal static class WeekdayTimeAxis
     {
-        private static readonly DateTime BaseMonday = new DateTime(1970, 1, 5, 0, 0, 0, DateTimeKind.Unspecified);
+        private static readonly DateTime BaseMonday = new(1970, 1, 5, 0, 0, 0, DateTimeKind.Unspecified);
         private static readonly long TicksPerDay = TimeSpan.FromDays(1).Ticks;
         private static readonly long TicksPerWeek = TimeSpan.FromDays(7).Ticks;
 
@@ -23,7 +23,7 @@
             }
             long maxWeekdayTicks = 5 * TicksPerDay;
             if (rem > maxWeekdayTicks) rem = maxWeekdayTicks;
-            return (double)(week * maxWeekdayTicks + rem);
+            return week * maxWeekdayTicks + rem;
         }
 
         public static double ToPlotTicks(DateTimeOffset dto)

@@ -44,17 +44,17 @@ namespace mine
         private static readonly Pen TooltipBorderPen;
         private static readonly Pen MajorGridPen;
         private bool _autoFollowLive = true;
-        private static readonly Typeface UiTypeface = new Typeface(new FontFamily("Consolas"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+        private static readonly Typeface UiTypeface = new(new FontFamily("Consolas"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
 
         static PriceChartControl()
         {
             BgBrush = new SolidColorBrush(Color.FromRgb(30, 30, 30));
             BgBrush.Freeze();
-            MarketBandBrush = new SolidColorBrush(Color.FromArgb(95, 255, 255, 255));
+            MarketBandBrush = new SolidColorBrush(Color.FromArgb(30, 100, 100, 255));
             MarketBandBrush.Freeze();
-            GridPen = new Pen(new SolidColorBrush(Color.FromRgb(55, 55, 60)), 1.0);
+            GridPen = new Pen(new SolidColorBrush(Color.FromRgb(100, 100, 100)), 1.0);
             GridPen.Freeze();
-            MajorGridPen = new Pen(new SolidColorBrush(Color.FromRgb(95, 95, 105)), 2.2);
+            MajorGridPen = new Pen(new SolidColorBrush(Color.FromRgb(255, 255, 255)), 2.0);
             MajorGridPen.Freeze();
             AxisPen = new Pen(new SolidColorBrush(Color.FromRgb(80, 80, 85)), 1.0);
             AxisPen.Freeze();
