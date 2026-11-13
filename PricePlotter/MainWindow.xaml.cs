@@ -11,7 +11,7 @@ using System.Windows.Controls;
 
 namespace mine
 {
-    public readonly record struct PricePoint(DateTimeOffset Timestamp, double PlotTicks, double UtcTicks, decimal Price);
+    public readonly record struct PricePoint(DateTimeOffset Timestamp, double PlotTicks, double UtcTicks, decimal Price, bool IsSimulated = false);
 
     public enum SnapMode
     {
@@ -23,6 +23,15 @@ namespace mine
     public partial class MainWindow : Window
     {
         private const string LivePriceChannel = "liveprice";
+        private static readonly string MasterLogDir = @"D:\LivePrice\MasterLogs";
+        private static readonly string MasterBuyLogPath = Path.Combine(MasterLogDir, "master_buy_price_log.csv");
+        private static readonly string MasterSellLogPath = Path.Combine(MasterLogDir, "master_sell_price_log.csv");
+        private readonly List<PricePoint> _masterBuyPoints = new();
+        private readonly List<PricePoint> _masterSellPoints = new();
+        private readonly List<PricePoint> _simBuyPoints = new();
+        private readonly List<PricePoint> _simSellPoints = new();
+        private readonly HashSet<(long UtcTicks, decimal Price)> _knownBuyKeys = new();
+        private readonly HashSet<(long UtcTicks, decimal Price)> _knownSellKeys = new();
         private readonly KestrelClient _kestrelClient = new();
         private readonly CancellationTokenSource _cts = new();
         private LiveStatusWindow? _statusWindow;
@@ -49,6 +58,9 @@ namespace mine
                     _statusWindow?.UpdateConnectionState(status);
                 });
             };
+
+            LoadMasterLogsOnStartup();
+            UpdateMasterStatusDisplay();
 
             _ = StartLiveMonitoringAsync(_cts.Token);
         }
@@ -93,6 +105,7 @@ namespace mine
 
                 decimal lastPrice = dataEl.TryGetProperty("PriceValue", out JsonElement priceEl) && priceEl.ValueKind == JsonValueKind.Number ? priceEl.GetDecimal() : 0m;
                 string transactionType = dataEl.TryGetProperty("TransactionType", out JsonElement transEl) ? transEl.GetString() ?? string.Empty : string.Empty;
+                bool isSimulatedPrice = dataEl.TryGetProperty("IsSimulatedPrice", out JsonElement simEl) && simEl.ValueKind == JsonValueKind.True;
 
                 string automationStatus = dataEl.TryGetProperty("AutomationStatus", out JsonElement automationStatusEl) ? automationStatusEl.GetString() ?? string.Empty : string.Empty;
                 string statusMessage = dataEl.TryGetProperty("StatusMessage", out JsonElement statusMessageEl) ? statusMessageEl.GetString() ?? string.Empty : string.Empty;
@@ -112,8 +125,17 @@ namespace mine
                     if (isNewPrice && parsedDto.HasValue)
                     {
                         bool isBuy = transactionType.Equals("Buy", StringComparison.OrdinalIgnoreCase);
-                        var pt = new PricePoint(parsedDto.Value, WeekdayTimeAxis.ToPlotTicks(parsedDto.Value, Chart.AxisMode), parsedDto.Value.UtcTicks, lastPrice);
-                        Chart.AddLivePoint(pt, isBuy);
+                        var pt = new PricePoint(parsedDto.Value, WeekdayTimeAxis.ToPlotTicks(parsedDto.Value, Chart.AxisMode), parsedDto.Value.UtcTicks, lastPrice, isSimulatedPrice);
+                        if (isSimulatedPrice)
+                        {
+                            (isBuy ? _simBuyPoints : _simSellPoints).Add(pt);
+                            Chart.AddLivePoint(pt, isBuy);
+                        }
+                        else if (TryAddPointToMaster(pt, isBuy))
+                        {
+                            Chart.AddLivePoint(pt, isBuy);
+                            UpdateMasterStatusDisplay();
+                        }
                     }
                     _statusWindow?.UpdatePacketData(automationStatus, statusMessage, errorMessage, isNewPrice ? transactionType : null, isNewPrice ? lastPrice : null, parsedDto);
                 });
@@ -188,25 +210,169 @@ namespace mine
             if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return;
             if (e.Data.GetData(DataFormats.FileDrop) is not string[] files) return;
 
-            List<PricePoint>? buyPoints = null;
-            List<PricePoint>? sellPoints = null;
+            int newBuyAdded = 0;
+            int newSellAdded = 0;
+            bool buyUpdated = false;
+            bool sellUpdated = false;
 
             foreach (string filePath in files)
             {
                 string fileName = Path.GetFileName(filePath);
-                if (string.Equals(fileName, "buy_price_log.csv", StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(fileName, "buy_price_log.csv", StringComparison.OrdinalIgnoreCase) || string.Equals(fileName, "master_buy_price_log.csv", StringComparison.OrdinalIgnoreCase))
                 {
-                    buyPoints = ParseLogFile(filePath, Chart.AxisMode);
+                    List<PricePoint> droppedBuy = ParseLogFile(filePath, Chart.AxisMode);
+                    newBuyAdded += MergeIntoMaster(droppedBuy, isBuy: true);
+                    buyUpdated = true;
                 }
-                else if (string.Equals(fileName, "sell_price_log.csv", StringComparison.OrdinalIgnoreCase))
+                else if (string.Equals(fileName, "sell_price_log.csv", StringComparison.OrdinalIgnoreCase) || string.Equals(fileName, "master_sell_price_log.csv", StringComparison.OrdinalIgnoreCase))
                 {
-                    sellPoints = ParseLogFile(filePath, Chart.AxisMode);
+                    List<PricePoint> droppedSell = ParseLogFile(filePath, Chart.AxisMode);
+                    newSellAdded += MergeIntoMaster(droppedSell, isBuy: false);
+                    sellUpdated = true;
                 }
             }
 
-            if (buyPoints != null || sellPoints != null)
+            if (buyUpdated || sellUpdated)
             {
-                Chart.SetData(buyPoints, sellPoints);
+                Chart.SetData(buyUpdated ? BuildChartSeries(_masterBuyPoints, _simBuyPoints) : null, sellUpdated ? BuildChartSeries(_masterSellPoints, _simSellPoints) : null);
+
+                string dropSummary = $"Dropped CSV added {newBuyAdded} new Buy and {newSellAdded} new Sell points. ";
+                TxtStatus.Text = dropSummary + GetMasterStatusString();
+            }
+        }
+
+        private void UpdateMasterStatusDisplay()
+        {
+            TxtStatus.Text = GetMasterStatusString();
+        }
+
+        private string GetMasterStatusString()
+        {
+            return $"Master Records -> Buy: {_masterBuyPoints.Count:N0} points | Sell: {_masterSellPoints.Count:N0} points";
+        }
+
+        private static List<PricePoint> BuildChartSeries(List<PricePoint> masterPoints, List<PricePoint> simPoints)
+        {
+            var combined = new List<PricePoint>(masterPoints.Count + simPoints.Count);
+            combined.AddRange(masterPoints);
+            if (simPoints.Count > 0)
+            {
+                combined.AddRange(simPoints);
+                combined.Sort((a, b) => a.UtcTicks.CompareTo(b.UtcTicks));
+            }
+            return combined;
+        }
+
+        private void LoadMasterLogsOnStartup()
+        {
+            Directory.CreateDirectory(MasterLogDir);
+
+            if (File.Exists(MasterBuyLogPath))
+            {
+                foreach (PricePoint pt in ParseLogFile(MasterBuyLogPath, Chart.AxisMode))
+                {
+                    if (_knownBuyKeys.Add(((long)pt.UtcTicks, pt.Price))) _masterBuyPoints.Add(pt);
+                }
+            }
+
+            if (File.Exists(MasterSellLogPath))
+            {
+                foreach (PricePoint pt in ParseLogFile(MasterSellLogPath, Chart.AxisMode))
+                {
+                    if (_knownSellKeys.Add(((long)pt.UtcTicks, pt.Price))) _masterSellPoints.Add(pt);
+                }
+            }
+
+            if (_masterBuyPoints.Count > 0 || _masterSellPoints.Count > 0)
+            {
+                Chart.SetData(new List<PricePoint>(_masterBuyPoints), new List<PricePoint>(_masterSellPoints));
+            }
+        }
+
+        private bool TryAddPointToMaster(PricePoint pt, bool isBuy)
+        {
+            HashSet<(long UtcTicks, decimal Price)> knownKeys = isBuy ? _knownBuyKeys : _knownSellKeys;
+            List<PricePoint> masterList = isBuy ? _masterBuyPoints : _masterSellPoints;
+            string masterPath = isBuy ? MasterBuyLogPath : MasterSellLogPath;
+
+            if (!knownKeys.Add(((long)pt.UtcTicks, pt.Price))) return false;
+
+            if (masterList.Count == 0 || pt.UtcTicks >= masterList[^1].UtcTicks)
+            {
+                masterList.Add(pt);
+                AppendPointToFile(masterPath, pt);
+            }
+            else
+            {
+                int idx = masterList.FindIndex(p => p.UtcTicks > pt.UtcTicks);
+                if (idx >= 0) masterList.Insert(idx, pt);
+                else masterList.Add(pt);
+                RewriteMasterFile(masterPath, masterList);
+            }
+            return true;
+        }
+
+        private int MergeIntoMaster(List<PricePoint> incomingPoints, bool isBuy)
+        {
+            if (incomingPoints.Count == 0) return 0;
+
+            HashSet<(long UtcTicks, decimal Price)> knownKeys = isBuy ? _knownBuyKeys : _knownSellKeys;
+            List<PricePoint> masterList = isBuy ? _masterBuyPoints : _masterSellPoints;
+            string masterPath = isBuy ? MasterBuyLogPath : MasterSellLogPath;
+
+            int addedCount = 0;
+            foreach (PricePoint pt in incomingPoints)
+            {
+                if (knownKeys.Add(((long)pt.UtcTicks, pt.Price)))
+                {
+                    masterList.Add(pt);
+                    addedCount++;
+                }
+            }
+
+            if (addedCount > 0)
+            {
+                masterList.Sort((a, b) => a.UtcTicks.CompareTo(b.UtcTicks));
+                RewriteMasterFile(masterPath, masterList);
+            }
+            return addedCount;
+        }
+
+        private static void AppendPointToFile(string path, PricePoint pt)
+        {
+            try
+            {
+                Directory.CreateDirectory(MasterLogDir);
+                File.AppendAllText(path, $"{pt.Timestamp.ToString("yyyy-MM-ddTHH:mm:ssK", CultureInfo.InvariantCulture)}, {pt.Price.ToString(CultureInfo.InvariantCulture)}\r\n");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Master Log Append Error: {ex.Message}");
+            }
+        }
+
+        private static void RewriteMasterFile(string path, List<PricePoint> points)
+        {
+            try
+            {
+                Directory.CreateDirectory(MasterLogDir);
+                string tempPath = path + ".tmp";
+                using (var fs = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                using (var sw = new StreamWriter(fs))
+                {
+                    for (int i = 0; i < points.Count; i++)
+                    {
+                        PricePoint pt = points[i];
+                        sw.Write(pt.Timestamp.ToString("yyyy-MM-ddTHH:mm:ssK", CultureInfo.InvariantCulture));
+                        sw.Write(", ");
+                        sw.WriteLine(pt.Price.ToString(CultureInfo.InvariantCulture));
+                    }
+                }
+                File.Move(tempPath, path, overwrite: true);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Master Log Rewrite Error: {ex.Message}");
             }
         }
 

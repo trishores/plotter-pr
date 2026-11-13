@@ -145,8 +145,8 @@ namespace mine
             for (int i = 0; i < rawSeries.Count; i++)
             {
                 PricePoint pt = rawSeries[i];
-                if (_axisMode == TimeAxisMode.Compact && !WeekdayTimeAxis.IsMarketOpen(pt.Timestamp)) continue;
-                result.Add(new PricePoint(pt.Timestamp, WeekdayTimeAxis.ToPlotTicks(pt.Timestamp, _axisMode), pt.UtcTicks, pt.Price));
+                if (_axisMode == TimeAxisMode.Compact && pt.IsSimulated) continue;
+                result.Add(new PricePoint(pt.Timestamp, WeekdayTimeAxis.ToPlotTicks(pt.Timestamp, _axisMode), pt.UtcTicks, pt.Price, pt.IsSimulated));
             }
             result.Sort((a, b) => a.PlotTicks.CompareTo(b.PlotTicks));
             return result;
@@ -219,12 +219,12 @@ namespace mine
                 else rawTarget.Add(pt);
             }
 
-            if (_axisMode == TimeAxisMode.Compact && !WeekdayTimeAxis.IsMarketOpen(pt.Timestamp))
+            if (_axisMode == TimeAxisMode.Compact && pt.IsSimulated)
             {
                 return;
             }
 
-            var projectedPt = new PricePoint(pt.Timestamp, WeekdayTimeAxis.ToPlotTicks(pt.Timestamp, _axisMode), pt.UtcTicks, pt.Price);
+            var projectedPt = new PricePoint(pt.Timestamp, WeekdayTimeAxis.ToPlotTicks(pt.Timestamp, _axisMode), pt.UtcTicks, pt.Price, pt.IsSimulated);
             List<PricePoint> activeTarget = isBuy ? _buyPoints : _sellPoints;
             if (activeTarget.Count == 0 || projectedPt.PlotTicks >= activeTarget[^1].PlotTicks)
             {
@@ -472,7 +472,7 @@ namespace mine
             if (!_hasData)
             {
                 string msg = (_rawBuyPoints.Count > 0 || _rawSellPoints.Count > 0) && _axisMode == TimeAxisMode.Compact
-                    ? "No points within weekday market hours (08:00-16:30). Switch View to 'Expanded' to view out-of-hours/weekend data."
+                    ? "No live points to display in Compact view. Switch View to 'Expanded' to view simulated data."
                     : "Drag and drop buy_price_log.csv and/or sell_price_log.csv onto this area";
                 var emptyText = new FormattedText(msg, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, UiTypeface, 14, LabelBrush, dpi);
                 dc.DrawText(emptyText, new Point(plot.Left + (plot.Width - emptyText.Width) / 2.0, plot.Top + (plot.Height - emptyText.Height) / 2.0));

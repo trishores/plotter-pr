@@ -3,10 +3,11 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <Grid Background="#444444">
-            <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Left" Margin="0">
+        <Grid Grid.Row="0" Background="#444444">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Margin="0">
                 <Button x:Name="BtnResetView" Content="Reset View" Click="BtnResetView_Click" Margin="10,8" Padding="12,5" Background="#0E639C" Foreground="White" BorderThickness="0"/>
                 <CheckBox x:Name="ChkAutoFitY" Content="Auto-Fit Y to Visible X" IsChecked="True" Checked="ChkAutoFitY_Changed" Unchecked="ChkAutoFitY_Changed" VerticalAlignment="Center" Margin="12,0" Foreground="#CCCCCC"/>
                 <CheckBox x:Name="ChkAutoFollowLive" Content="Streaming" IsChecked="True" Checked="ChkAutoFollowLive_Changed" Unchecked="ChkAutoFollowLive_Changed" VerticalAlignment="Center" Margin="12,0" Foreground="#CCCCCC"/>
@@ -22,7 +23,7 @@
                     <ComboBoxItem Content="Sell"/>
                 </ComboBox>
             </StackPanel>
-            <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0">
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="20,0">
                     <Rectangle Width="14" Height="3" Fill="#00E676" VerticalAlignment="Center" Margin="0,0,6,0"/>
                     <TextBlock Text="Buy" Foreground="#00E676" VerticalAlignment="Center" Margin="0,0,18,0"/>
@@ -33,5 +34,11 @@
         </Grid>
 
         <local:PriceChartControl x:Name="Chart" Grid.Row="1" AllowDrop="True" DragOver="Chart_DragOver" Drop="Chart_Drop"/>
+
+        <StatusBar Grid.Row="2" Background="#2D2D30" Foreground="#CCCCCC" Padding="6,2">
+            <StatusBarItem>
+                <TextBlock x:Name="TxtStatus" Text="Ready" Foreground="#CCCCCC"/>
+            </StatusBarItem>
+        </StatusBar>
     </Grid>
 </Window>
