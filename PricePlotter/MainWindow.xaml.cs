@@ -96,57 +96,137 @@ namespace mine
                     root = root[0];
                 }
 
-                if (!root.TryGetProperty("Type", out JsonElement typeEl) || typeEl.ValueKind != JsonValueKind.String || !root.TryGetProperty("Data", out JsonElement dataEl))
+                if (!root.TryGetProperty("Type", out JsonElement typeEl) || typeEl.ValueKind != JsonValueKind.String)
                 {
                     return;
                 }
 
                 string messageType = typeEl.GetString() ?? string.Empty;
-                if (!messageType.Equals("LivePricePacket", StringComparison.OrdinalIgnoreCase)) return;
-
-                string packetTimestamp = root.TryGetProperty("Timestamp", out JsonElement tsEl) ? tsEl.GetString() ?? string.Empty : string.Empty;
-                if (!DateTimeOffset.TryParse(packetTimestamp, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTimeOffset timestamp)) return;
-
-                decimal lastPrice = dataEl.TryGetProperty("PriceValue", out JsonElement priceEl) && priceEl.ValueKind == JsonValueKind.Number ? priceEl.GetDecimal() : 0m;
-                string transactionType = dataEl.TryGetProperty("TransactionType", out JsonElement transEl) ? transEl.GetString() ?? string.Empty : string.Empty;
-                bool isSimulatedPrice = dataEl.TryGetProperty("IsSimulatedPrice", out JsonElement simEl) && simEl.ValueKind == JsonValueKind.True;
-
-                string automationStatus = dataEl.TryGetProperty("AutomationStatus", out JsonElement automationStatusEl) ? automationStatusEl.GetString() ?? string.Empty : string.Empty;
-                string statusMessage = dataEl.TryGetProperty("StatusMessage", out JsonElement statusMessageEl) ? statusMessageEl.GetString() ?? string.Empty : string.Empty;
-                string errorMessage = dataEl.TryGetProperty("ErrorMessage", out JsonElement errorMessageEl) ? errorMessageEl.GetString() ?? string.Empty : string.Empty;
-
-                bool isNewPrice = false;
-                DateTimeOffset? parsedDto = timestamp.ToLocalTime();
-
-                if (lastPrice > 0m && (transactionType.Equals("Buy", StringComparison.OrdinalIgnoreCase) || transactionType.Equals("Sell", StringComparison.OrdinalIgnoreCase)) && !string.Equals(packetTimestamp, _lastPriceTimestamp, StringComparison.Ordinal))
+                if (messageType.Equals("LOG_SYNC_RESPONSE", StringComparison.OrdinalIgnoreCase))
                 {
-                    _lastPriceTimestamp = packetTimestamp;
-                    isNewPrice = true;
-                }
-
-                Dispatcher.BeginInvoke(() =>
-                {
-                    if (isNewPrice && parsedDto.HasValue)
+                    List<string> buyLines = new();
+                    if (root.TryGetProperty("BuyLines", out JsonElement buyArr) && buyArr.ValueKind == JsonValueKind.Array)
                     {
-                        bool isBuy = transactionType.Equals("Buy", StringComparison.OrdinalIgnoreCase);
-                        var pt = new PricePoint(parsedDto.Value, WeekdayTimeAxis.ToPlotTicks(parsedDto.Value, Chart.AxisMode), parsedDto.Value.UtcTicks, lastPrice, isSimulatedPrice);
-                        if (isSimulatedPrice)
+                        foreach (JsonElement item in buyArr.EnumerateArray())
                         {
-                            (isBuy ? _simBuyPoints : _simSellPoints).Add(pt);
-                            Chart.AddLivePoint(pt, isBuy);
-                        }
-                        else if (TryAddPointToMaster(pt, isBuy))
-                        {
-                            Chart.AddLivePoint(pt, isBuy);
-                            UpdateMasterStatusDisplay();
+                            if (item.GetString() is string s) buyLines.Add(s);
                         }
                     }
-                    _statusWindow?.UpdatePacketData(automationStatus, statusMessage, errorMessage, isNewPrice ? transactionType : null, isNewPrice ? lastPrice : null, parsedDto);
-                });
+
+                    List<string> sellLines = new();
+                    if (root.TryGetProperty("SellLines", out JsonElement sellArr) && sellArr.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (JsonElement item in sellArr.EnumerateArray())
+                        {
+                            if (item.GetString() is string s) sellLines.Add(s);
+                        }
+                    }
+
+                    Dispatcher.BeginInvoke(() => ApplyLogSyncResponse(buyLines, sellLines));
+                }
+                else if (messageType.Equals("LivePricePacket", StringComparison.OrdinalIgnoreCase) && root.TryGetProperty("Data", out JsonElement dataEl))
+                {
+                    string packetTimestamp = root.TryGetProperty("Timestamp", out JsonElement tsEl) ? tsEl.GetString() ?? string.Empty : string.Empty;
+                    if (!DateTimeOffset.TryParse(packetTimestamp, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTimeOffset timestamp)) return;
+
+                    decimal lastPrice = dataEl.TryGetProperty("PriceValue", out JsonElement priceEl) && priceEl.ValueKind == JsonValueKind.Number ? priceEl.GetDecimal() : 0m;
+                    string transactionType = dataEl.TryGetProperty("TransactionType", out JsonElement transEl) ? transEl.GetString() ?? string.Empty : string.Empty;
+                    bool isSimulatedPrice = dataEl.TryGetProperty("IsSimulatedPrice", out JsonElement simEl) && simEl.ValueKind == JsonValueKind.True;
+
+                    string automationStatus = dataEl.TryGetProperty("AutomationStatus", out JsonElement automationStatusEl) ? automationStatusEl.GetString() ?? string.Empty : string.Empty;
+                    string statusMessage = dataEl.TryGetProperty("StatusMessage", out JsonElement statusMessageEl) ? statusMessageEl.GetString() ?? string.Empty : string.Empty;
+                    string errorMessage = dataEl.TryGetProperty("ErrorMessage", out JsonElement errorMessageEl) ? errorMessageEl.GetString() ?? string.Empty : string.Empty;
+
+                    bool isNewPrice = false;
+                    DateTimeOffset? parsedDto = timestamp.ToLocalTime();
+
+                    if (lastPrice > 0m && (transactionType.Equals("Buy", StringComparison.OrdinalIgnoreCase) || transactionType.Equals("Sell", StringComparison.OrdinalIgnoreCase)) && !string.Equals(packetTimestamp, _lastPriceTimestamp, StringComparison.Ordinal))
+                    {
+                        _lastPriceTimestamp = packetTimestamp;
+                        isNewPrice = true;
+                    }
+
+                    Dispatcher.BeginInvoke(() =>
+                    {
+                        if (isNewPrice && parsedDto.HasValue)
+                        {
+                            bool isBuy = transactionType.Equals("Buy", StringComparison.OrdinalIgnoreCase);
+                            var pt = new PricePoint(parsedDto.Value, WeekdayTimeAxis.ToPlotTicks(parsedDto.Value, Chart.AxisMode), parsedDto.Value.UtcTicks, lastPrice, isSimulatedPrice);
+                            if (isSimulatedPrice)
+                            {
+                                (isBuy ? _simBuyPoints : _simSellPoints).Add(pt);
+                                Chart.AddLivePoint(pt, isBuy);
+                            }
+                            else if (TryAddPointToMaster(pt, isBuy))
+                            {
+                                Chart.AddLivePoint(pt, isBuy);
+                                UpdateMasterStatusDisplay();
+                            }
+                        }
+                        _statusWindow?.UpdatePacketData(automationStatus, statusMessage, errorMessage, isNewPrice ? transactionType : null, isNewPrice ? lastPrice : null, parsedDto);
+                    });
+                }
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Payload Parse Error: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Payload parse error: {ex.Message}");
+            }
+        }
+
+        private void ApplyLogSyncResponse(List<string> buyLines, List<string> sellLines)
+        {
+            List<PricePoint> incomingBuy = ParseLogLines(buyLines, Chart.AxisMode);
+            List<PricePoint> incomingSell = ParseLogLines(sellLines, Chart.AxisMode);
+
+            int newBuyAdded = MergeIntoMaster(incomingBuy, isBuy: true);
+            int newSellAdded = MergeIntoMaster(incomingSell, isBuy: false);
+
+            if (newBuyAdded > 0 || newSellAdded > 0)
+            {
+                Chart.SetData(newBuyAdded > 0 ? BuildChartSeries(_masterBuyPoints, _simBuyPoints) : null, newSellAdded > 0 ? BuildChartSeries(_masterSellPoints, _simSellPoints) : null);
+            }
+
+            TxtStatus.Text = $"Pulled logs added {newBuyAdded} new Buy and {newSellAdded} new Sell points. " + GetMasterStatusString();
+        }
+
+        private static List<PricePoint> ParseLogLines(List<string> lines, TimeAxisMode mode)
+        {
+            var list = new List<PricePoint>(lines.Count);
+            foreach (string line in lines)
+            {
+                if (TryParseLogLine(line, mode, out PricePoint pt)) list.Add(pt);
+            }
+            list.Sort((a, b) => a.UtcTicks.CompareTo(b.UtcTicks));
+            return list;
+        }
+
+        private static Dictionary<string, int> BuildDailyCounts(List<PricePoint> points)
+        {
+            var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+            for (int i = 0; i < points.Count; i++)
+            {
+                string dayKey = points[i].Timestamp.ToLocalTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                counts[dayKey] = counts.TryGetValue(dayKey, out int c) ? c + 1 : 1;
+            }
+            return counts;
+        }
+
+        private async void BtnPullLogs_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                TxtStatus.Text = "Requesting price logs from LivePrice app...";
+                var request = new
+                {
+                    Type = "REQUEST_LOG_SYNC",
+                    BuyCounts = BuildDailyCounts(_masterBuyPoints),
+                    SellCounts = BuildDailyCounts(_masterSellPoints)
+                };
+                await _kestrelClient.SendJsonAsync(LivePriceChannel, request, cancellationToken: _cts.Token);
+            }
+            catch (Exception ex)
+            {
+                TxtStatus.Text = $"Failed to request logs: {ex.Message}";
             }
         }
 
@@ -388,18 +468,26 @@ namespace mine
             string? line;
             while ((line = sr.ReadLine()) != null)
             {
-                if (string.IsNullOrWhiteSpace(line)) continue;
-                int commaIdx = line.IndexOf(',');
-                if (commaIdx <= 0) continue;
-                ReadOnlySpan<char> tsSpan = line.AsSpan(0, commaIdx).Trim();
-                ReadOnlySpan<char> priceSpan = line.AsSpan(commaIdx + 1).Trim();
-                if (DateTimeOffset.TryParse(tsSpan, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTimeOffset dto) && decimal.TryParse(priceSpan, NumberStyles.Number, CultureInfo.InvariantCulture, out decimal price))
-                {
-                    list.Add(new PricePoint(dto, WeekdayTimeAxis.ToPlotTicks(dto, mode), dto.UtcTicks, price));
-                }
+                if (TryParseLogLine(line, mode, out PricePoint pt)) list.Add(pt);
             }
             list.Sort((a, b) => a.UtcTicks.CompareTo(b.UtcTicks));
             return list;
+        }
+
+        private static bool TryParseLogLine(string? line, TimeAxisMode mode, out PricePoint pt)
+        {
+            pt = default;
+            if (string.IsNullOrWhiteSpace(line)) return false;
+            int commaIdx = line.IndexOf(',');
+            if (commaIdx <= 0) return false;
+            ReadOnlySpan<char> tsSpan = line.AsSpan(0, commaIdx).Trim();
+            ReadOnlySpan<char> priceSpan = line.AsSpan(commaIdx + 1).Trim();
+            if (DateTimeOffset.TryParse(tsSpan, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTimeOffset dto) && decimal.TryParse(priceSpan, NumberStyles.Number, CultureInfo.InvariantCulture, out decimal price))
+            {
+                pt = new PricePoint(dto, WeekdayTimeAxis.ToPlotTicks(dto, mode), dto.UtcTicks, price);
+                return true;
+            }
+            return false;
         }
     }
 }
