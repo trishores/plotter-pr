@@ -22,6 +22,8 @@ namespace mine
 
     public partial class MainWindow : Window
     {
+        #region Class fields
+
         private const string LivePriceChannel = "liveprice";
         private static readonly string MasterLogDir = @"D:\LivePrice\MasterLogs";
         private static readonly string MasterBuyLogPath = Path.Combine(MasterLogDir, "master_buy_price_log.csv");
@@ -36,6 +38,8 @@ namespace mine
         private readonly CancellationTokenSource _cts = new();
         private LiveStatusWindow? _statusWindow;
         private string _lastPriceTimestamp = string.Empty;
+
+        #endregion
 
         public MainWindow()
         {
