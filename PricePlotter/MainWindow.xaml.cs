@@ -88,7 +88,9 @@ namespace mine
                 string messageType = typeEl.GetString() ?? string.Empty;
                 if (!messageType.Equals("LivePricePacket", StringComparison.OrdinalIgnoreCase)) return;
 
-                string priceTimestamp = dataEl.TryGetProperty("PriceTimestamp", out JsonElement tsEl) ? tsEl.GetString() ?? string.Empty : string.Empty;
+                string packetTimestamp = root.TryGetProperty("Timestamp", out JsonElement tsEl) ? tsEl.GetString() ?? string.Empty : string.Empty;
+                if (!DateTimeOffset.TryParse(packetTimestamp, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTimeOffset timestamp)) return;
+
                 decimal lastPrice = dataEl.TryGetProperty("PriceValue", out JsonElement priceEl) && priceEl.ValueKind == JsonValueKind.Number ? priceEl.GetDecimal() : 0m;
                 string transactionType = dataEl.TryGetProperty("TransactionType", out JsonElement transEl) ? transEl.GetString() ?? string.Empty : string.Empty;
 
@@ -97,13 +99,12 @@ namespace mine
                 string errorMessage = dataEl.TryGetProperty("ErrorMessage", out JsonElement errorMessageEl) ? errorMessageEl.GetString() ?? string.Empty : string.Empty;
 
                 bool isNewPrice = false;
-                DateTimeOffset? parsedDto = null;
+                DateTimeOffset? parsedDto = timestamp.ToLocalTime();
 
-                if (!string.IsNullOrEmpty(priceTimestamp) && !string.Equals(priceTimestamp, _lastPriceTimestamp, StringComparison.Ordinal) && long.TryParse(priceTimestamp, CultureInfo.InvariantCulture, out long rawUtcTicks))
+                if (lastPrice > 0m && (transactionType.Equals("Buy", StringComparison.OrdinalIgnoreCase) || transactionType.Equals("Sell", StringComparison.OrdinalIgnoreCase)) && !string.Equals(packetTimestamp, _lastPriceTimestamp, StringComparison.Ordinal))
                 {
-                    _lastPriceTimestamp = priceTimestamp;
-                    parsedDto = new DateTimeOffset(rawUtcTicks, TimeSpan.Zero).ToLocalTime();
-                    isNewPrice = lastPrice > 0m && (transactionType.Equals("Buy", StringComparison.OrdinalIgnoreCase) || transactionType.Equals("Sell", StringComparison.OrdinalIgnoreCase));
+                    _lastPriceTimestamp = packetTimestamp;
+                    isNewPrice = true;
                 }
 
                 Dispatcher.BeginInvoke(() =>
