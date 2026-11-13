@@ -17,7 +17,7 @@ namespace mine
         private static readonly long MarketOpenTicks = TimeSpan.FromHours(8).Ticks;
         private static readonly long MarketCloseTicks = TimeSpan.FromHours(16.5).Ticks;
         private static readonly long MarketDurationTicks = MarketCloseTicks - MarketOpenTicks; // 8.5 hours
-        private static readonly long CompactGapTicks = TimeSpan.FromHours(4).Ticks; // 4 hours between translucent bands
+        private static readonly long CompactGapTicks = TimeSpan.FromHours(2).Ticks; // 2 hours between translucent bands
         private static readonly long CompactDayStrideTicks = MarketDurationTicks + CompactGapTicks; // 12.5 hours per weekday
         private static readonly long CompactWeekStrideTicks = 5 * CompactDayStrideTicks;
 
